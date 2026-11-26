@@ -324,7 +324,6 @@ class SpeechToTextController extends ChangeNotifier {
     _recordingSeconds = 0;
     _audioPath = null;
     _rawText = null;
-    _correctedText = null;
     _errorMessage = null;
   }
 
