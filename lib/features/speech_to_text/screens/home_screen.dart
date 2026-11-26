@@ -1,15 +1,10 @@
-
-import 'dart:async';
-
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:nepal_sathi_frontend/features/speech_to_text/services/audio_recording_services.dart';
-import 'package:share_plus/share_plus.dart';
+import 'package:nepal_sathi_frontend/features/speech_to_text/widgets/transcription_result.dart';
 
+import '../controllers/speech_to_text_controller.dart';
 import '../widgets/audio_preview.dart';
 import '../widgets/recording_card.dart';
-import '../widgets/transcription_result.dart';
-import 'dart:io';
+import '../widgets/transcription_status.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -18,377 +13,155 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen>
-    with SingleTickerProviderStateMixin {
-  // Services
-  final AudioRecordingService _audioService =
-      AudioRecordingService();
+class _HomeScreenState extends State<HomeScreen> {
+  late final SpeechToTextController _controller;
+  final ScrollController _scrollController = ScrollController();
 
-  // Animation
-  late final AnimationController _recordingController;
-  late final Animation<double> _recordingScale;
-
-  // Timer
-  Timer? _timer;
-
-  // Screen state
-  bool _isRecording = false;
-  bool _isProcessing = false;
-
-  String? _audioPath;
-  String? _correctedText;
-
-  int _recordingSeconds = 0;
-
-  // ============================================================
-  // GETTERS
-  // ============================================================
-
-  String get _formattedDuration {
-    final minutes = (_recordingSeconds ~/ 60)
-        .toString()
-        .padLeft(2, '0');
-
-    final seconds = (_recordingSeconds % 60)
-        .toString()
-        .padLeft(2, '0');
-
-    return '$minutes:$seconds';
-  }
-
-  // ============================================================
-  // LIFECYCLE
-  // ============================================================
+  String? _lastDisplayedText;
 
   @override
   void initState() {
     super.initState();
-
-    _recordingController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 800),
-    );
-
-    _recordingScale = Tween<double>(
-      begin: 1.0,
-      end: 1.12,
-    ).animate(
-      CurvedAnimation(
-        parent: _recordingController,
-        curve: Curves.easeInOut,
-      ),
-    );
+    _controller = SpeechToTextController();
+    _controller.addListener(_handleControllerChange);
   }
 
-  @override
-  void dispose() {
-    _timer?.cancel();
-    _recordingController.dispose();
+@override
+void dispose() {
+  _controller.removeListener(_handleControllerChange);
+  _controller.dispose();
+  _scrollController.dispose();
 
-    unawaited(_audioService.dispose());
-
-    super.dispose();
-  }
-
-  // ============================================================
-  // RECORDING
-  // ============================================================
-
-  Future<void> _startRecording() async {
-    try {
-      final hasPermission = await _audioService.startRecording();
-
-      if (!mounted) {
-        if (hasPermission) {
-          await _audioService.stopRecording();
-        }
-        return;
-      }
-
-      if (!hasPermission) {
-        _showMessage('Microphone permission is required.');
-        return;
-      }
-
-      setState(() {
-        _isRecording = true;
-        _audioPath = null;
-        _correctedText = null;
-        _recordingSeconds = 0;
-      });
-
-      _recordingController.repeat(reverse: true);
-
-      _timer = Timer.periodic(
-        const Duration(seconds: 1),
-        (_) {
-          if (mounted) {
-            setState(() => _recordingSeconds++);
-          }
-        },
-      );
-    } catch (e) {
-      _stopRecordingAnimation();
-
-      if (mounted) {
-        setState(() => _isRecording = false);
-        _showMessage('Could not start recording.');
-      }
-    }
-  }
-
-  Future<void> _stopRecording() async {
-    _timer?.cancel();
-    _stopRecordingAnimation();
-
-    try {
-      final path = await _audioService.stopRecording();
-
-      if (!mounted) return;
-
-      if (path == null) {
-        setState(() => _isRecording = false);
-        _showMessage('Recording could not be saved.');
-        return;
-      }
-
-      setState(() {
-        _isRecording = false;
-        _audioPath = path;
-      });
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isRecording = false);
-        _showMessage('Could not stop recording.');
-      }
-    }
-  }
-
-  void _stopRecordingAnimation() {
-    _recordingController.stop();
-    _recordingController.value = 0;
-  }
-
-  Future<void> _deleteRecording() async {
-  final path = _audioPath;
-
-  try {
-    await _audioService.stopPlayback();
-
-    if (path != null) {
-      await File(path).delete();
-    }
-
-    if (!mounted) return;
-
-    setState(() {
-      _audioPath = null;
-      _correctedText = null;
-      _recordingSeconds = 0;
-    });
-  } catch (e) {
-    _showMessage('Could not delete recording.');
-  }
+  super.dispose();
 }
 
-  Future<void> _handleRecordingTap() async {
-    if (_isProcessing) return;
+  void _handleControllerChange() {
+    final correctedText = _controller.correctedText;
 
-    if (_isRecording) {
-      await _stopRecording();
-    } else if (_audioPath != null) {
-      await _reset();
-    } else {
-      await _startRecording();
+    if (correctedText == null) {
+      _lastDisplayedText = null;
+      return;
     }
-  }
 
-  // ============================================================
-  // TRANSCRIPTION
-  // ============================================================
+    // Avoid scrolling on unrelated state updates.
+    if (correctedText == _lastDisplayedText) return;
 
-  Future<void> _submitRecording() async {
-    if (_audioPath == null || _isProcessing) return;
+    _lastDisplayedText = correctedText;
 
-    setState(() => _isProcessing = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
 
-    try {
-      // TODO: Replace with actual backend integration.
-      //
-      // Expected response:
-      // {
-      //   "rawText": "...",
-      //   "correctedText": "..."
-      // }
-
-      await Future.delayed(const Duration(seconds: 2));
-
-      const demoResult =
-          'आज मौसम धेरै राम्रो छ। सबैलाई शुभ दिन!';
-
-      if (!mounted) return;
-
-      setState(() {
-        _correctedText = demoResult;
-      });
-    } catch (e) {
-      _showMessage(
-        'आवाज बुझ्न सकिएन। कृपया फेरि प्रयास गर्नुहोस्।',
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 600),
+        curve: Curves.easeOutCubic,
       );
-    } finally {
-      if (mounted) {
-        setState(() => _isProcessing = false);
-      }
-    }
+    });
   }
-
-  // ============================================================
-  // TEXT ACTIONS
-  // ============================================================
 
   Future<void> _copyText() async {
-    if (_correctedText == null) return;
+    try {
+      final copied = await _controller.copyText();
+      if (!mounted || !copied) return;
 
-    await Clipboard.setData(
-      ClipboardData(text: _correctedText!),
-    );
-
-    _showMessage('Text copied successfully!');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Text copied successfully!')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Could not copy text.')));
+    }
   }
 
   Future<void> _shareText() async {
-    if (_correctedText == null) return;
-
-    await SharePlus.instance.share(
-      ShareParams(
-        text: _correctedText!,
-        title: 'Nepali Sathi',
-      ),
-    );
+    try {
+      await _controller.shareText();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Could not share text.')));
+    }
   }
-
-  // ============================================================
-  // RESET
-  // ============================================================
-
-  Future<void> _reset() async {
-    _timer?.cancel();
-    _stopRecordingAnimation();
-    _deleteRecording();
-
-    await _audioService.stopPlayback();
-
-    if (!mounted) return;
-
-    setState(() {
-      _isRecording = false;
-      _isProcessing = false;
-      _audioPath = null;
-      _correctedText = null;
-      _recordingSeconds = 0;
-    });
-  }
-
-  // ============================================================
-  // HELPERS
-  // ============================================================
-
-  void _showMessage(String message) {
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
-  }
-
-  // ============================================================
-  // UI
-  // ============================================================
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(22),
-          children: [
-            const SizedBox(height: 16),
+    return ListenableBuilder(
+      listenable: _controller,
+      builder: (context, _) {
+        return Scaffold(
+          body: SafeArea(
+            child: ListView(
+              controller: _scrollController,
+              padding: const EdgeInsets.all(22),
+              children: [
+                const SizedBox(height: 16),
+                _buildHeader(),
+                const SizedBox(height: 45),
 
-            // Header
-            const Center(
-              child: Column(
-                children: [
-                  Text(
-                    'Nepali Sathi',
-                    style: TextStyle(
-                      fontSize: 30,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: -0.8,
-                    ),
-                  ),
-                  SizedBox(height: 8),
-                  Text(
-                    'बोल्नुहोस्, हामी नेपालीमा लेख्छौँ।',
-                    style: TextStyle(
-                      fontSize: 15,
-                      color: Colors.black54,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+                RecordingCard(
+                  isRecording: _controller.isRecording,
+                  isProcessing: _controller.isProcessing,
+                  hasRecording: _controller.hasRecording,
+                  duration: _controller.formattedDuration,
+                  onRecordTap: _controller.handleRecordingButtonTap,
+                  onSubmit: _controller.submitRecording,
+                ),
 
-            const SizedBox(height: 45),
-
-            // Recording
-            RecordingCard(
-              isRecording: _isRecording,
-              isProcessing: _isProcessing,
-              hasRecording: _audioPath != null,
-              duration: _formattedDuration,
-              recordingScale: _recordingScale,
-              onRecordTap: _handleRecordingTap,
-              onSubmit: _submitRecording,
-            ),
-
-            // Audio preview
-            if (_audioPath != null && !_isRecording) ...[
-              AudioPreview(
-                player: _audioService.player,
-                onTogglePlayback: () {
-                  _audioService.togglePlayback(_audioPath!);
-                },
-                 onDelete: _deleteRecording,
-              ),
-            ],
-
-            const SizedBox(height: 25),
-
-            // Processing indicator
-            if (_isProcessing)
-              const Column(
-                children: [
-                  CircularProgressIndicator(
-                    color: Color(0xFF16845B),
-                  ),
-                  SizedBox(height: 15),
-                  Text(
-                    'तपाईंको बोलीलाई लेखाइमा परिवर्तन गर्दैछौँ...',
-                    textAlign: TextAlign.center,
+                if (_controller.hasRecording &&
+                    !_controller.isRecording &&
+                    !_controller.isProcessing) ...[
+                  AudioPreview(
+                    player: _controller.audioPlayer,
+                    onTogglePlayback: _controller.togglePlayback,
+                    onDelete: _controller.deleteRecording,
                   ),
                 ],
-              ),
 
-            // Transcription result
-            if (_correctedText != null)
-              TranscriptionResult(
-                text: _correctedText!,
-                onCopy: _copyText,
-                onShare: _shareText,
-                onReset: _reset,
-              ),
-          ],
-        ),
+                TranscriptionStatus(
+                  isProcessing: _controller.isProcessing,
+                  errorMessage: _controller.errorMessage,
+                  canRetryCorrection: _controller.canRetryCorrection,
+                  onRetry: _controller.retry,
+                ),
+
+                if (_controller.correctedText != null) ...[
+                  const SizedBox(height: 20),
+                  TranscriptionResult(
+                    text: _controller.correctedText!,
+                    onCopy: _copyText,
+                    onShare: _shareText,
+                    onReset: _controller.reset,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildHeader() {
+    return const Center(
+      child: Column(
+        children: [
+          Text(
+            'Nepali Sathi',
+            style: TextStyle(
+              fontSize: 30,
+              fontWeight: FontWeight.bold,
+              letterSpacing: -0.8,
+            ),
+          ),
+          SizedBox(height: 8),
+          Text(
+            'बोल्नुहोस्, हामी नेपालीमा लेख्छौँ।',
+            style: TextStyle(fontSize: 15, color: Colors.black54),
+          ),
+        ],
       ),
     );
   }

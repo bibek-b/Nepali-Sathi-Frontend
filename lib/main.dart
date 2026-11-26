@@ -18,9 +18,7 @@ class NepaliSathiApp extends StatelessWidget {
       theme: ThemeData(
         useMaterial3: true,
         scaffoldBackgroundColor: const Color(0xFFF8FAF8),
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF16845B),
-        ),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF16845B)),
       ),
       home: const HomeScreen(),
     );
