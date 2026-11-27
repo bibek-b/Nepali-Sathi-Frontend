@@ -49,7 +49,7 @@ flutter_native_splash:
   # Android 12 and newer (including Android 14)
   android_12:
     color: "#16845B"
-    image: assets/images/splash_logo.png
+    image: assets/images/blank_splash_image.png
 
 # Flutter configuration
 flutter:
@@ -57,5 +57,5 @@ flutter:
 
   assets:
     - assets/images/splash_image.png
-    - assets/images/splash_logo.png
+    - assets/images/blank_splash_image.png
     - assets/icon/app_icon.png
