@@ -5,8 +5,9 @@
         <action android:name="android.intent.action.TTS_SERVICE" />
     </intent>
 </queries>
+<uses-permission android:name="android.permission.INTERNET" />
     <application
-        android:label="nepal_sathi_frontend"
+        android:label="Nepali Sathi"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         >
