@@ -1,9 +1,8 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
 import 'package:nepal_sathi_frontend/features/speech_to_text/controllers/accessibility_settings_controller.dart';
 import 'package:nepal_sathi_frontend/features/speech_to_text/screens/home_screen.dart';
+import 'package:nepal_sathi_frontend/features/speech_to_text/screens/splash_screen.dart';
 import 'package:nepal_sathi_frontend/theme/app_theme.dart';
 
 void main() {
@@ -21,12 +20,30 @@ class NepaliSathiApp extends StatefulWidget {
 class _NepaliSathiAppState extends State<NepaliSathiApp> {
   late final AccessibilitySettingsController _accessibilitySettings;
 
+  late final Future<void> _startupFuture;
+
   @override
   void initState() {
     super.initState();
 
     _accessibilitySettings = AccessibilitySettingsController();
-    unawaited(_accessibilitySettings.load());
+
+    _startupFuture = _initializeApp();
+  }
+
+  Future<void> _initializeApp() async {
+    // Ensure the splash is visible for at least 1.5 seconds.
+    final minimumSplashDuration = Future<void>.delayed(
+      const Duration(milliseconds: 1500),
+    );
+
+    try {
+      await _accessibilitySettings.load();
+    } catch (e) {
+      debugPrint('Could not load accessibility settings: $e');
+    }
+
+    await minimumSplashDuration;
   }
 
   @override
@@ -41,14 +58,13 @@ class _NepaliSathiAppState extends State<NepaliSathiApp> {
       debugShowCheckedModeBanner: false,
       title: 'Nepali Sathi',
 
-      // Keep MaterialApp and its Navigator stable.
       theme: AppTheme.light,
 
       builder: (context, child) {
         return ListenableBuilder(
           listenable: _accessibilitySettings,
           builder: (context, _) {
-            final selectedTheme = _accessibilitySettings.highContrastEnabled
+            final theme = _accessibilitySettings.highContrastEnabled
                 ? AppTheme.highContrast
                 : AppTheme.light;
 
@@ -61,7 +77,7 @@ class _NepaliSathiAppState extends State<NepaliSathiApp> {
                 : 1.0;
 
             return Theme(
-              data: selectedTheme,
+              data: theme,
               child: MediaQuery(
                 data: mediaQuery.copyWith(
                   textScaler: TextScaler.linear(systemScale * appScale),
@@ -73,7 +89,16 @@ class _NepaliSathiAppState extends State<NepaliSathiApp> {
         );
       },
 
-      home: HomeScreen(accessibilitySettings: _accessibilitySettings),
+      home: FutureBuilder<void>(
+        future: _startupFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const SplashScreen();
+          }
+
+          return HomeScreen(accessibilitySettings: _accessibilitySettings);
+        },
+      ),
     );
   }
 }
