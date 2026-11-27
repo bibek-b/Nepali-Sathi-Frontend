@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:nepal_sathi_frontend/features/speech_to_text/widgets/transcription_result.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../controllers/accessibility_settings_controller.dart';
 import '../controllers/speech_to_text_controller.dart';
+import '../widgets/accessibility_settings_sheet.dart';
 import '../widgets/audio_preview.dart';
 import '../widgets/recording_card.dart';
+import '../widgets/transcription_result.dart';
 import '../widgets/transcription_status.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final AccessibilitySettingsController accessibilitySettings;
+
+  const HomeScreen({super.key, required this.accessibilitySettings});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -23,30 +28,47 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _controller = SpeechToTextController();
-    _controller.addListener(_handleControllerChange);
+    widget.accessibilitySettings.addListener(_syncAccessibilitySettings);
+    _syncAccessibilitySettings();
   }
 
-@override
-void dispose() {
-  _controller.removeListener(_handleControllerChange);
-  _controller.dispose();
-  _scrollController.dispose();
+  @override
+  void didUpdateWidget(covariant HomeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
 
-  super.dispose();
-}
+    if (oldWidget.accessibilitySettings != widget.accessibilitySettings) {
+      oldWidget.accessibilitySettings.removeListener(
+        _syncAccessibilitySettings,
+      );
+      widget.accessibilitySettings.addListener(_syncAccessibilitySettings);
+      _syncAccessibilitySettings();
+    }
+  }
 
-  void _handleControllerChange() {
-    final correctedText = _controller.correctedText;
+  void _syncAccessibilitySettings() {
+    _controller.setVoiceFeedbackEnabled(
+      widget.accessibilitySettings.voiceStatusEnabled,
+    );
+  }
 
-    if (correctedText == null) {
+  @override
+  void dispose() {
+    widget.accessibilitySettings.removeListener(_syncAccessibilitySettings);
+    _scrollController.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _scrollToNewResultIfNeeded() {
+    final text = _controller.correctedText;
+
+    if (text == null) {
       _lastDisplayedText = null;
       return;
     }
 
-    // Avoid scrolling on unrelated state updates.
-    if (correctedText == _lastDisplayedText) return;
-
-    _lastDisplayedText = correctedText;
+    if (text == _lastDisplayedText) return;
+    _lastDisplayedText = text;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_scrollController.hasClients) return;
@@ -59,19 +81,30 @@ void dispose() {
     });
   }
 
+  Future<void> _openAccessibilitySettings() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: false,
+      backgroundColor: Colors.transparent,
+      builder: (_) {
+        return AccessibilitySettingsSheet(
+          controller: widget.accessibilitySettings,
+        );
+      },
+    );
+  }
+
   Future<void> _copyText() async {
     try {
       final copied = await _controller.copyText();
       if (!mounted || !copied) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Text copied successfully!')),
-      );
+      _showMessage('Text copied successfully!');
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Could not copy text.')));
+      _showMessage('Could not copy text.');
     }
   }
 
@@ -80,10 +113,14 @@ void dispose() {
       await _controller.shareText();
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Could not share text.')));
+      _showMessage('Could not share text.');
     }
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -91,16 +128,17 @@ void dispose() {
     return ListenableBuilder(
       listenable: _controller,
       builder: (context, _) {
+        _scrollToNewResultIfNeeded();
+
         return Scaffold(
           body: SafeArea(
             child: ListView(
               controller: _scrollController,
               padding: const EdgeInsets.all(22),
               children: [
-                const SizedBox(height: 16),
-                _buildHeader(),
-                const SizedBox(height: 45),
-
+                const SizedBox(height: 8),
+                _buildHeader(context),
+                const SizedBox(height: 32),
                 RecordingCard(
                   isRecording: _controller.isRecording,
                   isProcessing: _controller.isProcessing,
@@ -109,33 +147,31 @@ void dispose() {
                   onRecordTap: _controller.handleRecordingButtonTap,
                   onSubmit: _controller.submitRecording,
                 ),
-
-                if (_controller.hasRecording &&
-                    !_controller.isRecording &&
-                    !_controller.isProcessing) ...[
+                if (_controller.hasRecording && !_controller.isRecording)
                   AudioPreview(
                     player: _controller.audioPlayer,
                     onTogglePlayback: _controller.togglePlayback,
                     onDelete: _controller.deleteRecording,
                   ),
-                ],
-
+                const SizedBox(height: 12),
                 TranscriptionStatus(
                   isProcessing: _controller.isProcessing,
                   errorMessage: _controller.errorMessage,
                   canRetryCorrection: _controller.canRetryCorrection,
                   onRetry: _controller.retry,
                 ),
-
                 if (_controller.correctedText != null) ...[
                   const SizedBox(height: 20),
                   TranscriptionResult(
                     text: _controller.correctedText!,
+                    isSpeaking: _controller.isSpeaking,
+                    onSpeak: _controller.toggleSpeakCorrectedText,
                     onCopy: _copyText,
                     onShare: _shareText,
                     onReset: _controller.reset,
                   ),
                 ],
+                const SizedBox(height: 24),
               ],
             ),
           ),
@@ -144,25 +180,40 @@ void dispose() {
     );
   }
 
-  Widget _buildHeader() {
-    return const Center(
-      child: Column(
-        children: [
-          Text(
-            'Nepali Sathi',
-            style: TextStyle(
-              fontSize: 30,
-              fontWeight: FontWeight.bold,
-              letterSpacing: -0.8,
-            ),
+  Widget _buildHeader(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
+    return Row(
+      children: [
+        const SizedBox(width: 48),
+        Expanded(
+          child: Column(
+            children: [
+              Text(
+                'Nepali Sathi',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: -0.8,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'बोल्नुहोस्, हामी नेपालीमा लेख्छौँ।',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+            ],
           ),
-          SizedBox(height: 8),
-          Text(
-            'बोल्नुहोस्, हामी नेपालीमा लेख्छौँ।',
-            style: TextStyle(fontSize: 15, color: Colors.black54),
-          ),
-        ],
-      ),
+        ),
+        IconButton.filledTonal(
+          tooltip: 'Accessibility settings',
+          onPressed: _openAccessibilitySettings,
+          icon: const Icon(LucideIcons.settings2),
+        ),
+      ],
     );
   }
 }

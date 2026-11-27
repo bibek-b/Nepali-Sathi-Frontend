@@ -17,16 +17,22 @@ class TranscriptionStatus extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
     if (isProcessing) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 20),
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 24),
         child: Column(
           children: [
-            CircularProgressIndicator(color: Color(0xFF16845B)),
-            SizedBox(height: 15),
+            CircularProgressIndicator(color: colors.primary),
+            const SizedBox(height: 16),
             Text(
               'तपाईंको बोलीलाई लेखाइमा परिवर्तन गर्दैछौँ...',
               textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                color: colors.onSurface,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ],
         ),
@@ -39,33 +45,37 @@ class TranscriptionStatus extends StatelessWidget {
       margin: const EdgeInsets.only(top: 20),
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFF7ED),
+        color: colors.errorContainer,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFFED7AA)),
+        border: Border.all(color: colors.error, width: 1.2),
       ),
       child: Column(
         children: [
-          const Icon(LucideIcons.alertCircle, color: Colors.orange, size: 28),
+          Icon(LucideIcons.alertCircle, color: colors.error, size: 30),
           const SizedBox(height: 10),
           Text(
             errorMessage!,
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 14),
+            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+              color: colors.onErrorContainer,
+              fontWeight: FontWeight.w600,
+            ),
           ),
-          const SizedBox(height: 15),
+          const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
               onPressed: onRetry,
-              icon: const Icon(LucideIcons.refreshCw, size: 17),
+              icon: const Icon(LucideIcons.refreshCw, size: 18),
               label: Text(
                 canRetryCorrection
                     ? 'लेखाइ फेरि सुधार गर्नुहोस्'
                     : 'फेरि प्रयास गर्नुहोस्',
               ),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF16845B),
-                foregroundColor: Colors.white,
+                backgroundColor: colors.primary,
+                foregroundColor: colors.onPrimary,
+                padding: const EdgeInsets.symmetric(vertical: 14),
               ),
             ),
           ),

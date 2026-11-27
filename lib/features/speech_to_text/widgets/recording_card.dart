@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -66,50 +65,54 @@ class _RecordingCardState extends State<RecordingCard>
 
   @override
   Widget build(BuildContext context) {
-    final buttonColor = widget.isRecording
-        ? Colors.red
-        : const Color(0xFF16845B);
+    final colors = Theme.of(context).colorScheme;
+    final isRecording = widget.isRecording;
 
-    final buttonBackground = widget.isRecording
-        ? const Color(0xFFFFEEEE)
-        : const Color(0xFFE5F4EC);
+    final buttonColor = isRecording ? colors.error : colors.primary;
+    final buttonBackground = isRecording
+        ? colors.errorContainer
+        : colors.primaryContainer;
 
-    final buttonIcon = widget.isRecording
+    final buttonIcon = isRecording
         ? LucideIcons.square
         : widget.hasRecording
         ? LucideIcons.rotateCcw
         : LucideIcons.mic;
 
-    final buttonLabel = widget.isRecording
-        ? 'Tap to stop recording'
+    final buttonLabel = isRecording
+        ? 'रेकर्डिङ रोक्नुहोस्'
         : widget.hasRecording
-        ? 'Record again'
-        : 'Tap to start recording';
+        ? 'फेरि रेकर्ड गर्नुहोस्'
+        : 'रेकर्ड गर्न थिच्नुहोस्';
 
     return Container(
-      padding: const EdgeInsets.all(25),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: colors.outline, width: 1),
       ),
       child: Column(
         children: [
-          const Text(
+          Text(
             'आफ्नो कुरा बोल्नुहोस्',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              color: colors.onSurface,
+              fontWeight: FontWeight.w700,
+            ),
           ),
           const SizedBox(height: 10),
-          const Text(
+          Text(
             'नेपाली वा नेपाली + English मा बोल्न सक्नुहुन्छ।',
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.black54, fontSize: 13),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: colors.onSurfaceVariant),
           ),
-          const SizedBox(height: 35),
+          const SizedBox(height: 32),
           ScaleTransition(
-            scale: widget.isRecording
-                ? _scale
-                : const AlwaysStoppedAnimation(1.0),
+            scale: isRecording ? _scale : const AlwaysStoppedAnimation(1.0),
             child: Material(
               color: Colors.transparent,
               shape: const CircleBorder(),
@@ -117,7 +120,7 @@ class _RecordingCardState extends State<RecordingCard>
                 customBorder: const CircleBorder(),
                 onTap: widget.isProcessing ? null : widget.onRecordTap,
                 child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
+                  duration: const Duration(milliseconds: 250),
                   curve: Curves.easeInOut,
                   width: 112,
                   height: 112,
@@ -128,8 +131,8 @@ class _RecordingCardState extends State<RecordingCard>
                     boxShadow: [
                       BoxShadow(
                         color: buttonColor.withValues(alpha: 0.18),
-                        blurRadius: widget.isRecording ? 28 : 12,
-                        spreadRadius: widget.isRecording ? 7 : 2,
+                        blurRadius: isRecording ? 28 : 12,
+                        spreadRadius: isRecording ? 7 : 2,
                       ),
                     ],
                   ),
@@ -148,15 +151,15 @@ class _RecordingCardState extends State<RecordingCard>
               ),
             ),
           ),
-          const SizedBox(height: 22),
+          const SizedBox(height: 20),
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 250),
             child: Text(
               buttonLabel,
               key: ValueKey(buttonLabel),
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
                 color: buttonColor,
               ),
             ),
@@ -167,20 +170,20 @@ class _RecordingCardState extends State<RecordingCard>
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Container(
-                  width: 9,
-                  height: 9,
-                  decoration: const BoxDecoration(
-                    color: Colors.red,
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    color: colors.error,
                     shape: BoxShape.circle,
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 9),
                 Text(
                   widget.duration,
-                  style: const TextStyle(
-                    fontSize: 18,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    color: colors.onSurface,
                     fontWeight: FontWeight.bold,
-                    fontFeatures: [FontFeature.tabularFigures()],
+                    fontFeatures: const [FontFeature.tabularFigures()],
                   ),
                 ),
               ],
@@ -189,16 +192,16 @@ class _RecordingCardState extends State<RecordingCard>
           if (widget.hasRecording &&
               !widget.isRecording &&
               !widget.isProcessing) ...[
-            const SizedBox(height: 25),
+            const SizedBox(height: 24),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
                 onPressed: widget.onSubmit,
-                icon: const Icon(LucideIcons.send, size: 18),
+                icon: const Icon(LucideIcons.send, size: 20),
                 label: const Text('बोली पठाउनुहोस्'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF16845B),
-                  foregroundColor: Colors.white,
+                  backgroundColor: colors.primary,
+                  foregroundColor: colors.onPrimary,
                   padding: const EdgeInsets.symmetric(vertical: 16),
                 ),
               ),

@@ -21,7 +21,7 @@ class ApiException implements Exception {
 }
 
 class TranscriptionService {
-  static const String _baseUrl = 'http://192.168.1.77:5632/api';
+  static const String _baseUrl = 'https://nepali-sathi-backend.onrender.com/api';
 
   static const Duration _timeout = Duration(seconds: 120);
 

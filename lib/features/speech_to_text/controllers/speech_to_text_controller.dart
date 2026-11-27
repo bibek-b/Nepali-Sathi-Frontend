@@ -1,41 +1,50 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../services/audio_recording_services.dart';
+import '../services/speech_feedback_service.dart';
 import '../services/transcription_service.dart';
-import 'package:flutter/foundation.dart';
 
-/// Owns the state and workflows for the speech-to-text screen.
-/// UI widgets should display these values and call these methods.
+/// Owns screen state and user workflows. Widgets only render this state
+/// and call the controller's public methods.
 class SpeechToTextController extends ChangeNotifier {
   SpeechToTextController({
     AudioRecordingService? audioService,
     TranscriptionService? transcriptionService,
+    SpeechFeedbackService? speechFeedbackService,
   }) : _audioService = audioService ?? AudioRecordingService(),
-       _transcriptionService = transcriptionService ?? TranscriptionService();
+       _transcriptionService = transcriptionService ?? TranscriptionService(),
+       _speechFeedbackService =
+           speechFeedbackService ?? SpeechFeedbackService();
 
   final AudioRecordingService _audioService;
   final TranscriptionService _transcriptionService;
+  final SpeechFeedbackService _speechFeedbackService;
 
   Timer? _recordingTimer;
   bool _disposed = false;
 
   bool _isRecording = false;
   bool _isProcessing = false;
+  bool _isSpeaking = false;
+  bool _voiceFeedbackEnabled = false;
   int _recordingSeconds = 0;
+  int _speechOperationId = 0;
 
   String? _audioPath;
   String? _rawText;
   String? _correctedText;
   String? _errorMessage;
 
-  // Read-only state exposed to the UI.
+  // Read-only state exposed to widgets.
   bool get isRecording => _isRecording;
   bool get isProcessing => _isProcessing;
+  bool get isSpeaking => _isSpeaking;
   bool get hasRecording => _audioPath != null;
   bool get hasResult => _correctedText != null;
   bool get canRetryCorrection => _rawText != null && _correctedText == null;
@@ -55,6 +64,80 @@ class SpeechToTextController extends ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
+  // Accessibility and voice feedback
+  // ---------------------------------------------------------------------------
+
+  void setVoiceFeedbackEnabled(bool enabled) {
+    if (_voiceFeedbackEnabled == enabled) return;
+
+    _voiceFeedbackEnabled = enabled;
+    if (!enabled) {
+      unawaited(_speechFeedbackService.stop());
+    }
+  }
+
+  /// Announces short status messages only when the user enables voice feedback.
+  /// We deliberately do not speak after recording starts: the phone's voice
+  /// could be captured by the microphone.
+  void _announceStatus(String message) {
+    if (!_voiceFeedbackEnabled || _disposed) return;
+
+    unawaited(
+      _speechFeedbackService
+          .speakNepali(message)
+          .then((_) {})
+          .catchError((Object _) {}),
+    );
+  }
+
+  Future<void> toggleSpeakCorrectedText() async {
+    // User wants to stop the current speech.
+    if (_isSpeaking) {
+      // Invalidate the previous speech request.
+      _speechOperationId++;
+
+      _isSpeaking = false;
+      _notify();
+
+      await _speechFeedbackService.stop();
+      return;
+    }
+
+    final text = _correctedText;
+
+    if (text == null || text.isEmpty || _isProcessing) return;
+
+    // Create a unique ID for this speech operation.
+    final operationId = ++_speechOperationId;
+
+    _isSpeaking = true;
+    _errorMessage = null;
+    _notify();
+
+    try {
+      final spoken = await _speechFeedbackService.speakNepali(text);
+
+      // Ignore results from intentionally stopped or outdated requests.
+      if (_disposed || operationId != _speechOperationId) return;
+
+      if (!spoken) {
+        _errorMessage =
+            'यस फोनमा नेपाली आवाज उपलब्ध छैन। फोनको Text-to-Speech सेटिङ जाँच गर्नुहोस्।';
+      }
+    } catch (_) {
+      if (!_disposed && operationId == _speechOperationId) {
+        _errorMessage = 'लेखाइ पढेर सुनाउन सकिएन।';
+      }
+    } finally {
+      // Only the active operation can update the speaking state.
+      if (!_disposed && operationId == _speechOperationId) {
+        _isSpeaking = false;
+        _notify();
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Recording
   // ---------------------------------------------------------------------------
 
@@ -64,7 +147,6 @@ class SpeechToTextController extends ChangeNotifier {
     if (_isRecording) {
       await stopRecording();
     } else {
-      // A new recording replaces the previous one.
       await startRecording();
     }
   }
@@ -76,6 +158,10 @@ class SpeechToTextController extends ChangeNotifier {
     _notify();
 
     try {
+      // Stop any spoken status/result before opening the microphone.
+      await _speechFeedbackService.stop();
+      _isSpeaking = false;
+
       final previousPath = _audioPath;
       final hasPermission = await _audioService.startRecording();
 
@@ -90,14 +176,11 @@ class SpeechToTextController extends ChangeNotifier {
         return;
       }
 
-      // Remove the previous file after the new recording has started.
       if (previousPath != null) {
-        // A cleanup failure must not leave the new recorder running
-        // while the UI reports that recording failed.
         try {
           await _deleteFile(previousPath);
         } catch (_) {
-          // The old temporary file can be cleaned up later.
+          // A stale temporary file must not prevent a new recording.
         }
       }
 
@@ -109,10 +192,11 @@ class SpeechToTextController extends ChangeNotifier {
       _isRecording = true;
       _startTimer();
       _notify();
-    } catch (error) {
+    } catch (_) {
       _isRecording = false;
       _stopTimer();
       _errorMessage = 'रेकर्डिङ सुरु गर्न सकिएन। फेरि प्रयास गर्नुहोस्।';
+      _announceStatus(_errorMessage!);
       _notify();
     }
   }
@@ -129,14 +213,17 @@ class SpeechToTextController extends ChangeNotifier {
       _isRecording = false;
       if (path == null) {
         _errorMessage = 'रेकर्डिङ सुरक्षित गर्न सकिएन।';
+        _announceStatus(_errorMessage!);
       } else {
         _audioPath = path;
         _errorMessage = null;
+        _announceStatus('रेकर्डिङ रोकियो। अब सुन्नुहोस् वा पठाउनुहोस्।');
       }
       _notify();
-    } catch (error) {
+    } catch (_) {
       _isRecording = false;
       _errorMessage = 'रेकर्डिङ रोक्न सकिएन। फेरि प्रयास गर्नुहोस्।';
+      _announceStatus(_errorMessage!);
       _notify();
     }
   }
@@ -165,7 +252,7 @@ class SpeechToTextController extends ChangeNotifier {
 
     try {
       await _audioService.togglePlayback(path);
-    } catch (error) {
+    } catch (_) {
       _errorMessage = 'रेकर्डिङ प्ले गर्न सकिएन।';
       _notify();
     }
@@ -176,11 +263,12 @@ class SpeechToTextController extends ChangeNotifier {
 
     try {
       await _audioService.stopPlayback();
+      await _speechFeedbackService.stop();
       if (path != null) await _deleteFile(path);
 
       _clearCurrentSession();
       _notify();
-    } catch (error) {
+    } catch (_) {
       _errorMessage = 'रेकर्डिङ हटाउन सकिएन।';
       _notify();
     }
@@ -205,6 +293,7 @@ class SpeechToTextController extends ChangeNotifier {
     _errorMessage = null;
     _rawText = null;
     _correctedText = null;
+    _announceStatus('तपाईंको बोलीलाई लेखाइमा परिवर्तन गर्दैछौँ।');
     _notify();
 
     try {
@@ -217,13 +306,20 @@ class SpeechToTextController extends ChangeNotifier {
       if (_correctedText == null) {
         _errorMessage =
             'तपाईंको लेखाइ सुधार गर्न सकिएन। फेरि प्रयास गर्नुहोस्।';
+        _announceStatus(_errorMessage!);
+      } else {
+        _announceStatus(
+          'तपाईंको लेखाइ तयार भयो। अब सुन्न वा कपी गर्न सक्नुहुन्छ।',
+        );
       }
     } on ApiException catch (error) {
       if (_disposed) return;
       _errorMessage = _friendlyError(error);
-    } catch (error) {
+      _announceStatus(_errorMessage!);
+    } catch (_) {
       if (_disposed) return;
       _errorMessage = 'केही समस्या आयो। कृपया फेरि प्रयास गर्नुहोस्।';
+      _announceStatus(_errorMessage!);
     } finally {
       _isProcessing = false;
       _notify();
@@ -236,17 +332,21 @@ class SpeechToTextController extends ChangeNotifier {
 
     _isProcessing = true;
     _errorMessage = null;
+    _announceStatus('लेखाइ फेरि सुधार गर्दैछौँ।');
     _notify();
 
     try {
       _correctedText = await _transcriptionService.retryCorrection(rawText);
       _errorMessage = null;
+      _announceStatus('तपाईंको लेखाइ तयार भयो।');
     } on ApiException catch (error) {
       if (_disposed) return;
       _errorMessage = _friendlyError(error);
-    } catch (error) {
+      _announceStatus(_errorMessage!);
+    } catch (_) {
       if (_disposed) return;
       _errorMessage = 'लेखाइ सुधार गर्न सकिएन। फेरि प्रयास गर्नुहोस्।';
+      _announceStatus(_errorMessage!);
     } finally {
       _isProcessing = false;
       _notify();
@@ -308,11 +408,14 @@ class SpeechToTextController extends ChangeNotifier {
 
     try {
       await _audioService.stopPlayback();
+      await _speechFeedbackService.stop();
+
       final path = _audioPath;
       if (path != null) await _deleteFile(path);
+
       _clearCurrentSession();
       _notify();
-    } catch (error) {
+    } catch (_) {
       _errorMessage = 'रिसेट गर्न सकिएन। फेरि प्रयास गर्नुहोस्।';
       _notify();
     }
@@ -321,9 +424,11 @@ class SpeechToTextController extends ChangeNotifier {
   void _clearCurrentSession() {
     _isRecording = false;
     _isProcessing = false;
+    _isSpeaking = false;
     _recordingSeconds = 0;
     _audioPath = null;
     _rawText = null;
+    _correctedText = null;
     _errorMessage = null;
   }
 
@@ -332,6 +437,7 @@ class SpeechToTextController extends ChangeNotifier {
     _disposed = true;
     _stopTimer();
     unawaited(_audioService.dispose());
+    unawaited(_speechFeedbackService.dispose());
     super.dispose();
   }
 }
